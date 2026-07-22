@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Khata — Split Expenses</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#14171B">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='18' fill='%2314171B'/%3E%3Ctext x='50' y='68' font-size='55' text-anchor='middle' fill='%23C9A24B' font-family='Georgia,serif'%3E₹%3C/text%3E%3C/svg%3E">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  :root{
+    --ink: #14171B;
+    --ink-2: #1D2126;
+    --paper: #F1ECDF;
+    --paper-dim: #B9B2A0;
+    --gold: #C9A24B;
+    --teal: #5D9B85;
+    --rust: #B0563B;
+    --line: rgba(241,236,223,0.14);
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --serif: 'Fraunces', Georgia, serif;
+    --sans: 'Inter', -apple-system, sans-serif;
+  }
+  @font-face{
+    font-family:'Fraunces';
+    src: local('Georgia');
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{
+    background:var(--ink);
+    color:var(--paper);
+    font-family:var(--sans);
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+  }
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+  .wrap{ max-width:640px; margin:0 auto; padding:28px 20px 100px; }
+
+  header{
+    display:flex; align-items:baseline; justify-content:space-between;
+    padding-bottom:18px; margin-bottom:22px;
+    border-bottom:1px solid var(--line);
+  }
+  header .brand{
+    font-family:var(--serif); font-weight:700; font-size:28px; letter-spacing:-0.01em;
+  }
+  header .brand em{ font-style:normal; color:var(--gold); }
+  header .tag{ font-size:11px; letter-spacing:0.08em; text-transform:uppercase; color:var(--paper-dim); }
+
+  .section-title{
+    font-family:var(--serif); font-size:15px; font-weight:600;
+    color:var(--gold); letter-spacing:0.02em;
+    margin: 26px 0 10px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .section-title::after{
+    content:''; flex:1; height:1px; background:var(--line);
+  }
+
+  /* People */
+  .people-row{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
+  .chip{
+    padding:7px 13px; border-radius:100px; border:1px solid var(--line);
+    font-size:13px; color:var(--paper); background:var(--ink-2);
+    display:flex; align-items:center; gap:6px;
+  }
+  .chip button{
+    background:none; border:none; color:var(--paper-dim); cursor:pointer;
+    font-size:14px; line-height:1; padding:0;
+  }
+  .chip button:hover{ color:var(--rust); }
+  .add-person{ display:flex; gap:8px; }
+
+  input, select{
+    background:var(--ink-2); border:1px solid var(--line); color:var(--paper);
+    border-radius:8px; padding:10px 12px; font-size:14px; font-family:var(--sans);
+    outline:none; width:100%;
+  }
+  input:focus, select:focus{ border-color:var(--gold); }
+  input::placeholder{ color:var(--paper-dim); }
+
+  button.primary{
+    background:var(--gold); color:var(--ink); border:none; border-radius:8px;
+    padding:10px 16px; font-weight:600; font-size:14px; cursor:pointer;
+    white-space:nowrap;
+  }
+  button.primary:hover{ background:#dcb75c; }
+  button.primary:disabled{ opacity:0.4; cursor:not-allowed; }
+  button.ghost{
+    background:none; border:1px solid var(--line); color:var(--paper-dim);
+    border-radius:8px; padding:8px 12px; font-size:13px; cursor:pointer;
+  }
+  button.ghost:hover{ color:var(--paper); border-color:var(--paper-dim); }
+
+  /* Add expense form */
+  .card{
+    background:var(--ink-2); border:1px solid var(--line); border-radius:12px;
+    padding:16px;
+  }
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .field{ margin-bottom:10px; }
+  .field label{
+    display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.06em;
+    color:var(--paper-dim); margin-bottom:6px;
+  }
+  .split-with{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
+  .split-chip{
+    padding:6px 11px; border-radius:100px; border:1px solid var(--line);
+    font-size:12.5px; cursor:pointer; user-select:none; color:var(--paper-dim);
+  }
+  .split-chip.on{ background:var(--teal); border-color:var(--teal); color:var(--ink); font-weight:600; }
+
+  /* Ledger */
+  .ledger-row{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:12px 0; border-bottom:1px dashed var(--line);
+    font-size:14px;
+  }
+  .ledger-row:last-child{ border-bottom:none; }
+  .ledger-left .desc{ font-weight:500; }
+  .ledger-left .meta{ font-size:12px; color:var(--paper-dim); margin-top:2px; }
+  .ledger-amt{
+    font-family:var(--mono); font-weight:700; font-size:15px; white-space:nowrap;
+    margin-left:12px;
+  }
+  .ledger-del{
+    background:none; border:none; color:var(--paper-dim); cursor:pointer;
+    font-size:15px; margin-left:10px;
+  }
+  .ledger-del:hover{ color:var(--rust); }
+  .ledger-item{ display:flex; align-items:center; }
+
+  /* Balances */
+  .balance-row{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:11px 0; border-bottom:1px solid var(--line);
+  }
+  .balance-row:last-child{ border-bottom:none; }
+  .balance-name{ font-size:14px; font-weight:500; }
+  .balance-amt{ font-family:var(--mono); font-weight:700; font-size:14px; }
+  .pos{ color:var(--teal); }
+  .neg{ color:var(--rust); }
+
+  .settle-row{
+    display:flex; align-items:center; gap:8px; padding:10px 0;
+    font-size:13.5px; border-bottom:1px dashed var(--line);
+  }
+  .settle-row:last-child{ border-bottom:none; }
+  .settle-arrow{ color:var(--gold); font-family:var(--mono); }
+  .settle-amt{ margin-left:auto; font-family:var(--mono); font-weight:700; color:var(--gold); }
+
+  .empty{
+    color:var(--paper-dim); font-size:13.5px; padding:18px 0; text-align:center;
+    border:1px dashed var(--line); border-radius:10px;
+  }
+
+  /* Calendar */
+  .cal-nav{
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:12px;
+  }
+  .cal-nav .cal-month{
+    font-family:var(--serif); font-weight:600; font-size:16px;
+  }
+  .cal-nav button{
+    background:var(--ink-2); border:1px solid var(--line); color:var(--paper);
+    border-radius:8px; width:32px; height:32px; cursor:pointer; font-size:14px;
+  }
+  .cal-nav button:hover{ border-color:var(--gold); color:var(--gold); }
+  .cal-grid{
+    display:grid; grid-template-columns:repeat(7, 1fr); gap:5px;
+  }
+  .cal-dow{
+    text-align:center; font-size:10px; text-transform:uppercase; letter-spacing:0.05em;
+    color:var(--paper-dim); padding-bottom:6px;
+  }
+  .cal-day{
+    aspect-ratio:1; border-radius:8px; border:1px solid var(--line);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    font-size:12.5px; cursor:default; background:var(--ink-2); gap:2px;
+    position:relative;
+  }
+  .cal-day.empty-cell{ border:none; background:none; }
+  .cal-day.has-exp{
+    cursor:pointer; border-color:var(--teal);
+  }
+  .cal-day.has-exp:hover{ background:rgba(93,155,133,0.12); }
+  .cal-day.today{ border-color:var(--gold); }
+  .cal-day .dnum{ font-weight:500; }
+  .cal-day .damt{
+    font-family:var(--mono); font-size:9px; color:var(--teal); font-weight:600;
+  }
+  .cal-day.selected{ background:rgba(201,162,75,0.15); border-color:var(--gold); }
+
+  .cal-detail{ margin-top:14px; }
+  .cal-detail-title{
+    font-size:12px; text-transform:uppercase; letter-spacing:0.06em;
+    color:var(--paper-dim); margin-bottom:8px;
+  }
+
+  .rupee{ font-family:var(--mono); }
+
+  footer{
+    text-align:center; color:var(--paper-dim); font-size:11px; margin-top:34px;
+    letter-spacing:0.03em;
+  }
+
+  .action-row{ display:flex; gap:10px; margin-top:14px; }
+  .action-row button{ flex:1; }
+
+  @media print{
+    body{ background:#fff; color:#111; }
+    .wrap{ max-width:100%; padding:10px; }
+    header, footer, .action-row, .cal-nav, #calGrid, #calDetail,
+    #peopleRow, .add-person, #splitWith{ display:none !important; }
+    .card:has(#descInput){ display:none !important; }
+    #printHeader{ display:block !important; color:#111; }
+    .section-title{ color:#111; }
+    .section-title::after{ background:#ccc; }
+    .card{ border-color:#ccc; background:#fff; }
+    .ledger-row, .balance-row, .settle-row{ border-color:#ddd; }
+    .pos{ color:#1a6b4f; } .neg{ color:#a03d26; }
+    .ledger-del{ display:none !important; }
+  }
+
+  @media (max-width:420px){
+    .grid2{ grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <div class="brand">Khata<em>.</em></div>
+      <div class="tag">private ledger · ₹ only</div>
+    </div>
+    <button class="ghost" onclick="exportPDF()">Download PDF</button>
+  </header>
+
+  <div class="section-title">People</div>
+  <div class="people-row" id="peopleRow"></div>
+  <div class="add-person">
+    <input id="personInput" placeholder="Add a name (e.g. Rahul)" maxlength="24">
+    <button class="primary" onclick="addPerson()">Add</button>
+  </div>
+
+  <div class="section-title">New expense</div>
+  <div class="card">
+    <div class="grid2">
+      <div class="field">
+        <label>Description</label>
+        <input id="descInput" placeholder="e.g. Dinner at Barbeque Nation">
+      </div>
+      <div class="field">
+        <label>Amount (₹)</label>
+        <input id="amtInput" type="number" placeholder="0" min="0" step="0.01">
+      </div>
+    </div>
+    <div class="field">
+      <label>Paid by</label>
+      <select id="paidBySelect"></select>
+    </div>
+    <div class="field">
+      <label>Split equally between</label>
+      <div class="split-with" id="splitWith"></div>
+    </div>
+    <button class="primary" style="width:100%" onclick="addExpense()">Add expense</button>
+  </div>
+
+  <div class="section-title">Ledger</div>
+  <div class="action-row">
+    <button class="ghost" onclick="window.print()">⬇ Download as PDF</button>
+  </div>
+  <div id="printHeader" style="display:none; margin:14px 0; font-family:var(--serif); font-size:20px; font-weight:700;">
+    Khata — Expense Report <span style="font-size:12px; font-weight:400;" id="printDate"></span>
+  </div>
+  <div id="ledgerList"></div>
+
+  <div class="section-title">Calendar</div>
+  <div class="card">
+    <div class="cal-nav">
+      <button onclick="changeMonth(-1)">‹</button>
+      <div class="cal-month" id="calMonthLabel"></div>
+      <button onclick="changeMonth(1)">›</button>
+    </div>
+    <div class="cal-grid" id="calGrid"></div>
+    <div class="cal-detail" id="calDetail"></div>
+  </div>
+
+  <div class="section-title">Balances</div>
+  <div id="balanceList" class="card"></div>
+
+  <div class="section-title">Settle up</div>
+  <div id="settleList" class="card"></div>
+
+  <footer>khata · stored privately on this device · no ads, no subscription</footer>
+</div>
+
+<script>
+let state = { people: [], expenses: [] };
+let splitSelection = new Set();
+let calDate = new Date();
+let selectedDay = null;
+
+async function loadState(){
+  try{
+    const res = await window.storage.get('khata-state');
+    if(res && res.value){ state = JSON.parse(res.value); }
+  }catch(e){ /* no data yet */ }
+  render();
+}
+
+async function saveState(){
+  try{ await window.storage.set('khata-state', JSON.stringify(state)); }
+  catch(e){ console.error('save failed', e); }
+}
+
+function fmt(n){
+  const sign = n < 0 ? '-' : '';
+  return sign + '₹' + Math.abs(n).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+function addPerson(){
+  const input = document.getElementById('personInput');
+  const name = input.value.trim();
+  if(!name) return;
+  if(state.people.includes(name)){ input.value=''; return; }
+  state.people.push(name);
+  input.value='';
+  saveState();
+  render();
+}
+
+function removePerson(name){
+  state.people = state.people.filter(p => p !== name);
+  state.expenses = state.expenses.filter(e => e.paidBy !== name && !e.splitWith.includes(name));
+  saveState();
+  render();
+}
+
+function toggleSplit(name){
+  if(splitSelection.has(name)) splitSelection.delete(name);
+  else splitSelection.add(name);
+  renderSplitChips();
+}
+
+function addExpense(){
+  const desc = document.getElementById('descInput').value.trim();
+  const amt = parseFloat(document.getElementById('amtInput').value);
+  const paidBy = document.getElementById('paidBySelect').value;
+  const splitWith = Array.from(splitSelection);
+
+  if(!desc || !amt || amt <= 0 || !paidBy || splitWith.length === 0){
+    alert('Fill in description, amount, payer, and at least one person to split with.');
+    return;
+  }
+
+  state.expenses.unshift({
+    id: Date.now(),
+    desc, amt, paidBy, splitWith,
+    date: new Date().toISOString()
+  });
+
+  document.getElementById('descInput').value = '';
+  document.getElementById('amtInput').value = '';
+  splitSelection.clear();
+
+  saveState();
+  render();
+}
+
+function deleteExpense(id){
+  state.expenses = state.expenses.filter(e => e.id !== id);
+  saveState();
+  render();
+}
+
+function computeBalances(){
+  const bal = {};
+  state.people.forEach(p => bal[p] = 0);
+  state.expenses.forEach(e => {
+    const share = e.amt / e.splitWith.length;
+    e.splitWith.forEach(p => { bal[p] = (bal[p]||0) - share; });
+    bal[e.paidBy] = (bal[e.paidBy]||0) + e.amt;
+  });
+  return bal;
+}
+
+function simplifySettlements(bal){
+  const creditors = [], debtors = [];
+  Object.entries(bal).forEach(([name, amt]) => {
+    if(amt > 0.01) creditors.push({name, amt});
+    else if(amt < -0.01) debtors.push({name, amt: -amt});
+  });
+  creditors.sort((a,b)=>b.amt-a.amt);
+  debtors.sort((a,b)=>b.amt-a.amt);
+
+  const txns = [];
+  let i=0, j=0;
+  while(i < debtors.length && j < creditors.length){
+    const pay = Math.min(debtors[i].amt, creditors[j].amt);
+    txns.push({from: debtors[i].name, to: creditors[j].name, amt: pay});
+    debtors[i].amt -= pay;
+    creditors[j].amt -= pay;
+    if(debtors[i].amt < 0.01) i++;
+    if(creditors[j].amt < 0.01) j++;
+  }
+  return txns;
+}
+
+function renderPeopleChips(){
+  const row = document.getElementById('peopleRow');
+  if(state.people.length === 0){
+    row.innerHTML = '<div class="empty" style="width:100%">Add people to start splitting expenses</div>';
+    return;
+  }
+  row.innerHTML = state.people.map(p => `
+    <div class="chip">${escapeHtml(p)} <button onclick="removePerson('${escapeAttr(p)}')">×</button></div>
+  `).join('');
+}
+
+function renderPaidBySelect(){
+  const sel = document.getElementById('paidBySelect');
+  sel.innerHTML = state.people.length
+    ? state.people.map(p => `<option value="${escapeAttr(p)}">${escapeHtml(p)}</option>`).join('')
+    : '<option value="">Add people first</option>';
+}
+
+function renderSplitChips(){
+  const wrap = document.getElementById('splitWith');
+  if(state.people.length === 0){
+    wrap.innerHTML = '';
+    return;
+  }
+  wrap.innerHTML = state.people.map(p => `
+    <div class="split-chip ${splitSelection.has(p)?'on':''}" onclick="toggleSplit('${escapeAttr(p)}')">${escapeHtml(p)}</div>
+  `).join('');
+}
+
+function renderLedger(){
+  const list = document.getElementById('ledgerList');
+  if(state.expenses.length === 0){
+    list.innerHTML = '<div class="empty">No expenses yet. Add one above.</div>';
+    return;
+  }
+  list.innerHTML = '<div class="card">' + state.expenses.map(e => `
+    <div class="ledger-row">
+      <div class="ledger-left">
+        <div class="desc">${escapeHtml(e.desc)}</div>
+        <div class="meta">${escapeHtml(e.paidBy)} paid · split with ${e.splitWith.map(escapeHtml).join(', ')}</div>
+      </div>
+      <div class="ledger-item">
+        <div class="ledger-amt">${fmt(e.amt)}</div>
+        <button class="ledger-del" onclick="deleteExpense(${e.id})">×</button>
+      </div>
+    </div>
+  `).join('') + '</div>';
+}
+
+function renderBalances(){
+  const bal = computeBalances();
+  const el = document.getElementById('balanceList');
+  if(state.people.length === 0){
+    el.innerHTML = '<div class="empty">No balances yet</div>';
+    return;
+  }
+  el.innerHTML = state.people.map(p => {
+    const v = bal[p] || 0;
+    const cls = v > 0.01 ? 'pos' : (v < -0.01 ? 'neg' : '');
+    const label = v > 0.01 ? 'is owed' : (v < -0.01 ? 'owes' : 'settled up');
+    return `
+      <div class="balance-row">
+        <div class="balance-name">${escapeHtml(p)} <span style="color:var(--paper-dim);font-weight:400;font-size:12px">${label}</span></div>
+        <div class="balance-amt ${cls}">${fmt(Math.abs(v))}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderSettlements(){
+  const bal = computeBalances();
+  const txns = simplifySettlements(bal);
+  const el = document.getElementById('settleList');
+  if(txns.length === 0){
+    el.innerHTML = '<div class="empty">Everyone is settled up</div>';
+    return;
+  }
+  el.innerHTML = txns.map(t => `
+    <div class="settle-row">
+      <span>${escapeHtml(t.from)}</span>
+      <span class="settle-arrow">→</span>
+      <span>${escapeHtml(t.to)}</span>
+      <span class="settle-amt">${fmt(t.amt)}</span>
+    </div>
+  `).join('');
+}
+
+const DOW = ['S','M','T','W','T','F','S'];
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+function dateKey(d){
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+function changeMonth(delta){
+  calDate.setMonth(calDate.getMonth() + delta);
+  selectedDay = null;
+  renderCalendar();
+}
+
+function selectDay(key){
+  selectedDay = (selectedDay === key) ? null : key;
+  renderCalendar();
+}
+
+function renderCalendar(){
+  const label = document.getElementById('calMonthLabel');
+  const grid = document.getElementById('calGrid');
+  const detail = document.getElementById('calDetail');
+
+  const year = calDate.getFullYear();
+  const month = calDate.getMonth();
+  label.textContent = MONTHS[month] + ' ' + year;
+
+  // sum expenses per day for this month
+  const dayTotals = {};
+  state.expenses.forEach(e => {
+    const d = new Date(e.date);
+    const key = dateKey(d);
+    if(d.getFullYear() === year && d.getMonth() === month){
+      dayTotals[key] = (dayTotals[key] || 0) + e.amt;
+    }
+  });
+
+  const firstOfMonth = new Date(year, month, 1);
+  const startOffset = firstOfMonth.getDay();
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const todayKey = dateKey(new Date());
+
+  let html = DOW.map(d => `<div class="cal-dow">${d}</div>`).join('');
+  for(let i=0; i<startOffset; i++){
+    html += '<div class="cal-day empty-cell"></div>';
+  }
+  for(let day=1; day<=daysInMonth; day++){
+    const d = new Date(year, month, day);
+    const key = dateKey(d);
+    const total = dayTotals[key];
+    const classes = ['cal-day'];
+    if(total) classes.push('has-exp');
+    if(key === todayKey) classes.push('today');
+    if(key === selectedDay) classes.push('selected');
+    html += `
+      <div class="${classes.join(' ')}" ${total ? `onclick="selectDay('${key}')"` : ''}>
+        <div class="dnum">${day}</div>
+        ${total ? `<div class="damt">${Math.round(total)}</div>` : ''}
+      </div>
+    `;
+  }
+  grid.innerHTML = html;
+
+  if(selectedDay){
+    const dayExpenses = state.expenses.filter(e => dateKey(new Date(e.date)) === selectedDay);
+    const [y,m,dd] = selectedDay.split('-');
+    const niceDate = new Date(y, m-1, dd).toLocaleDateString('en-IN', {day:'numeric', month:'long', year:'numeric'});
+    detail.innerHTML = `
+      <div class="cal-detail-title">${niceDate}</div>
+      ${dayExpenses.map(e => `
+        <div class="ledger-row">
+          <div class="ledger-left">
+            <div class="desc">${escapeHtml(e.desc)}</div>
+            <div class="meta">${escapeHtml(e.paidBy)} paid · split with ${e.splitWith.map(escapeHtml).join(', ')}</div>
+          </div>
+          <div class="ledger-amt">${fmt(e.amt)}</div>
+        </div>
+      `).join('')}
+    `;
+  } else {
+    detail.innerHTML = '';
+  }
+}
+
+function render(){
+  renderPeopleChips();
+  renderPaidBySelect();
+  renderSplitChips();
+  renderLedger();
+  renderCalendar();
+  renderBalances();
+  renderSettlements();
+  const pd = document.getElementById('printDate');
+  if(pd) pd.textContent = 'generated ' + new Date().toLocaleDateString('en-IN', {day:'numeric', month:'long', year:'numeric'});
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+function escapeAttr(s){ return escapeHtml(s).replace(/'/g,'&#39;'); }
+
+document.getElementById('personInput').addEventListener('keydown', e => { if(e.key==='Enter') addPerson(); });
+document.getElementById('amtInput').addEventListener('keydown', e => { if(e.key==='Enter') addExpense(); });
+
+loadState();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
