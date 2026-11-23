@@ -9,6 +9,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='18' fill='%2314171B'/%3E%3Ctext x='50' y='68' font-size='55' text-anchor='middle' fill='%23C9A24B' font-family='Georgia,serif'%3E₹%3C/text%3E%3C/svg%3E">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap');
   :root{
     --ink: #14171B;
     --ink-2: #1D2126;
@@ -34,7 +35,6 @@
     min-height:100vh;
     -webkit-font-smoothing:antialiased;
   }
-  @import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
   .wrap{ max-width:640px; margin:0 auto; padding:28px 20px 100px; }
 
@@ -273,7 +273,7 @@
 
   <div class="section-title">Ledger</div>
   <div class="action-row">
-    <button class="ghost" onclick="window.print()">⬇ Download as PDF</button>
+    <button class="ghost" onclick="window.print()">⎙ Print ledger</button>
   </div>
   <div id="printHeader" style="display:none; margin:14px 0; font-family:var(--serif); font-size:20px; font-weight:700;">
     Khata — Expense Report <span style="font-size:12px; font-weight:400;" id="printDate"></span>
@@ -306,17 +306,89 @@ let splitSelection = new Set();
 let calDate = new Date();
 let selectedDay = null;
 
+// Storage: localStorage when running as a normal web page / installed PWA.
+// window.storage (Claude artifact storage) is only used as a fallback when present.
+const STORE_KEY = 'khata-state';
+const store = {
+  async get(){
+    try{ const v = localStorage.getItem(STORE_KEY); if(v) return v; }catch(e){}
+    try{ if(window.storage){ const r = await window.storage.get(STORE_KEY); return r && r.value; } }catch(e){}
+    return null;
+  },
+  async set(v){
+    let ok = false;
+    try{ localStorage.setItem(STORE_KEY, v); ok = true; }catch(e){}
+    if(!ok && window.storage){ await window.storage.set(STORE_KEY, v); ok = true; }
+    if(!ok) throw new Error('no storage available');
+  }
+};
+
 async function loadState(){
   try{
-    const res = await window.storage.get('khata-state');
-    if(res && res.value){ state = JSON.parse(res.value); }
-  }catch(e){ /* no data yet */ }
+    const raw = await store.get();
+    if(raw){
+      const s = JSON.parse(raw);
+      if(Array.isArray(s.people) && Array.isArray(s.expenses)) state = s;
+    }
+  }catch(e){ console.warn('could not load saved data', e); }
   render();
 }
 
 async function saveState(){
-  try{ await window.storage.set('khata-state', JSON.stringify(state)); }
+  try{ await store.set(JSON.stringify(state)); }
   catch(e){ console.error('save failed', e); }
+}
+
+// PDF report with jsPDF; falls back to the browser print dialog when offline.
+function exportPDF(){
+  const lib = window.jspdf && window.jspdf.jsPDF;
+  if(!lib){ window.print(); return; }
+  const doc = new lib({unit:'pt', format:'a4'});
+  // the built-in PDF fonts have no rupee glyph, so the PDF uses "Rs."
+  const money = n => 'Rs. ' + Math.abs(n).toLocaleString('en-IN',{minimumFractionDigits:2, maximumFractionDigits:2});
+  const L = 40, W = 515, bottom = 800;
+  let y = 50;
+  const line = (txt, opts={}) => {
+    if(y > bottom){ doc.addPage(); y = 50; }
+    doc.setFont('helvetica', opts.bold ? 'bold' : 'normal');
+    doc.setFontSize(opts.size || 10);
+    doc.text(String(txt), opts.x || L, y, opts.right ? {align:'right'} : undefined);
+    if(!opts.keep) y += (opts.gap || 14);
+  };
+  line('Khata - Expense Report', {bold:true, size:18, gap:18});
+  line('Generated ' + new Date().toLocaleString('en-IN'), {size:9, gap:22});
+
+  const total = state.expenses.reduce((a,e)=>a+e.amt, 0);
+  line('Summary', {bold:true, size:12, gap:16});
+  line(state.people.length + ' people, ' + state.expenses.length + ' expenses, total ' + money(total), {gap:22});
+
+  line('Ledger', {bold:true, size:12, gap:16});
+  if(state.expenses.length === 0) line('No expenses yet.');
+  [...state.expenses].sort((a,b)=>new Date(a.date)-new Date(b.date)).forEach(e => {
+    const d = new Date(e.date).toLocaleDateString('en-IN');
+    line(d + '   ' + e.desc.slice(0,48), {keep:true});
+    line(money(e.amt), {x:L+W, right:true, keep:true});
+    y += 12;
+    line('paid by ' + e.paidBy + ', split with ' + e.splitWith.join(', '), {size:8, x:L+70, gap:14});
+  });
+  y += 8;
+
+  const bal = computeBalances();
+  line('Balances', {bold:true, size:12, gap:16});
+  state.people.forEach(p => {
+    const v = bal[p] || 0;
+    const label = v > 0.01 ? 'is owed' : (v < -0.01 ? 'owes' : 'settled up');
+    line(p + ' ' + label, {keep:true});
+    line(money(v), {x:L+W, right:true});
+  });
+  y += 8;
+
+  line('Settle up', {bold:true, size:12, gap:16});
+  const txns = simplifySettlements(bal);
+  if(txns.length === 0) line('Everyone is settled up.');
+  txns.forEach(t => { line(t.from + '  ->  ' + t.to, {keep:true}); line(money(t.amt), {x:L+W, right:true}); });
+
+  doc.save('khata-' + dateKey(new Date()) + '.pdf');
 }
 
 function fmt(n){
